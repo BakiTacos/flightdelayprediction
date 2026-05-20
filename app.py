@@ -29,20 +29,18 @@ except Exception as e:
     st.sidebar.error(f"❌ Gagal memuat komponen model: {e}")
     st.stop()
 
-# --- SINKRONISASI KATEGORI SECARA EXPLICIT INDEKS (ANTI-MISMATCH) ---
-# Urutan di bawah ini disesuaikan dengan standar kode unik penerbangan US
-CARRIER_OPTIONS = ['AA', 'DL', 'UA', 'WN', 'B6', 'AS', 'NK', 'HA', 'EV', 'OO']
-DEP_DAY_TYPE_OPTIONS = ['Night', 'Early_Morning', 'Morning', 'Midday', 'Afternoon', 'Evening']
+# --- SINKRONISASI MUTLAK KATEGORI (HARUS SAMA PERSIS DENGAN NOTEBOOK) ---
+MODEL_CARRIERS = ['9e', 'aa', 'as', 'b6', 'dl', 'f9', 'g4', 'ha', 'mq', 'nk', 'oh', 'oo', 'ua', 'wn', 'yx']
+MODEL_DAY_TYPES = ['Night', 'Early_Morning', 'Morning', 'Midday', 'Afternoon', 'Evening']
 
-# Membuat kamus pemetaan teks -> angka indeks (Sama seperti cara internal LightGBM membaca kategori)
-carrier_mapping = {name: idx for idx, name in enumerate(CARRIER_OPTIONS)}
-day_type_mapping = {name: idx for idx, name in enumerate(DEP_DAY_TYPE_OPTIONS)}
+# Tampilan UI untuk Maskapai kita ubah ke Uppercase agar rapi dilihat user
+UI_CARRIERS = [c.upper() for c in MODEL_CARRIERS]
 
 BUSY_MONTHS = [7, 8, 10] 
 CONGESTION_LOOKUP = {('JFK', 12): 45, ('LAX', 8): 60, ('ORD', 17): 75, ('ATL', 9): 90}
 AIRPORT_OPTIONS = list(airport_cluster_mapping.keys()) if airport_cluster_mapping else ['LAX', 'JFK', 'ORD', 'ATL']
-STATE_OPTIONS = ['Georgia', 'Illinois', 'Texas', 'Colorado', 'California', 'New York', 'Florida', 'North Carolina']
-CITY_OPTIONS = ['Atlanta, GA', 'Chicago, IL', 'Dallas/Fort Worth, TX', 'Denver, CO', 'Los Angeles, CA', 'San Francisco, CA', 'New York, NY']
+STATE_OPTIONS = ['Georgia', 'Illinois', 'Texas', 'Colorado', 'California', 'New York', 'Florida', 'North Carolina', 'Nevada', 'Arizona']
+CITY_OPTIONS = ['Atlanta, GA', 'Chicago, IL', 'Dallas/Fort Worth, TX', 'Denver, CO', 'Los Angeles, CA', 'San Francisco, CA', 'New York, NY', 'Miami, FL', 'Orlando, FL']
 
 # 3. Form Input Pengguna
 st.subheader("📊 Masukkan Informasi Penerbangan")
@@ -61,7 +59,7 @@ with col1:
 
 with col2:
     st.markdown("### ✈️ Maskapai & Lokasi")
-    op_unique_carrier = st.selectbox("Maskapai (Carrier)", CARRIER_OPTIONS)
+    op_unique_carrier_ui = st.selectbox("Maskapai (Carrier)", UI_CARRIERS)
     origin = st.selectbox("Bandara Asal (Origin)", AIRPORT_OPTIONS, index=0)       
     origin_city_name = st.selectbox("Kota Asal (Origin City Name)", CITY_OPTIONS, index=4) 
     origin_state_nm = st.selectbox("Negara Bagian Asal (Origin State)", STATE_OPTIONS, index=4)
@@ -91,38 +89,42 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
         
     congestion_index = CONGESTION_LOOKUP.get((origin, dep_hour), 15)
 
-    # Mengubah nilai teks langsung ke kode indeks angka yang aman bagi LightGBM
-    carrier_encoded = carrier_mapping.get(op_unique_carrier, 0)
-    day_type_encoded = day_type_mapping.get(dep_day_type, 0)
+    # ⚠️ PENTING: Kembalikan nama maskapai ke huruf kecil (lowercase) agar dikenali LightGBM
+    op_unique_carrier_model = op_unique_carrier_ui.lower()
 
-    # Konstruksi data dengan tipe numerik murni
+    # Konstruksi data mentah
     raw_input_data = {
         'month': int(month),
         'day_of_week': int(day_of_week),
-        'op_unique_carrier': carrier_encoded,  # Diinput sebagai kode kategori
+        'op_unique_carrier': op_unique_carrier_model, # Harus huruf kecil sesuai data asli
         'op_carrier_fl_num': float(op_carrier_fl_num),
         'crs_dep_time': int(crs_dep_time),
         'crs_elapsed_time': float(crs_elapsed_time),
         'distance': float(distance),
         'dep_hour': int(dep_hour),
         'is_busy_month': int(is_busy_month),
-        'dep_day_type': day_type_encoded,      # Diinput sebagai kode kategori
+        'dep_day_type': dep_day_type,
         'congestion_index': int(congestion_index)
     }
     
     df_input = pd.DataFrame([raw_input_data])
     
-    # Beritahu LightGBM secara eksplisit bahwa dua kolom ini adalah categorical feature
-    # Melalui konversi tipe data 'category' di tingkat pandas dataframe internalnya
-    for col in ['op_unique_carrier', 'dep_day_type']:
-        df_input[col] = df_input[col].astype('category')
+    # MENGUNCI KATEGORI DENGAN CategoricalDtype MENGGUNAKAN LIST ASLI NOTEBOOK
+    categories_dict = {
+        'op_unique_carrier': MODEL_CARRIERS,
+        'dep_day_type': MODEL_DAY_TYPES
+    }
+    for col, categories in categories_dict.items():
+        if col in df_input.columns:
+            cat_type = pd.CategoricalDtype(categories=categories, ordered=False)
+            df_input[col] = df_input[col].astype(cat_type)
 
-    # Keselarasan Sempurna: Memaksa urutan kolom input persis sesuai list expected_features
-    # Jika ada fitur yang kurang, otomatis diisi dengan nilai default 0
+    # SAFETY CHECK: Antisipasi kolom hilang
     for col in expected_features:
         if col not in df_input.columns:
             df_input[col] = 0
             
+    # Sinkronisasi urutan fitur akhir
     df_input = df_input[expected_features]
     
     # 5. Jalankan Prediksi
@@ -149,9 +151,8 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             with col_tab2:
                 st.json({
                     "Jam Keberangkatan": dep_hour,
-                    "Kategori Waktu Hari (Encoded)": day_type_encoded,
-                    "Maskapai (Encoded)": carrier_encoded,
-                    "Indeks Kemacetan Terhitung": congestion_index
+                    "Kategori Waktu Hari": dep_day_type,
+                    "Maskapai Terbaca Sistem": op_unique_carrier_model
                 })
     except Exception as e:
         st.error(f"Terjadi kesalahan saat memproses prediksi model: {e}")
