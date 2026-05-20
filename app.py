@@ -28,10 +28,11 @@ try:
 except Exception as e:
     st.sidebar.error(f"❌ Gagal memuat komponen model: {e}")
     st.markdown("### ⚠️ Artefak Model Tidak Ditemukan")
-    st.info("Pastikan file `lgbm_cluster_models.pkl`, `airport_cluster_mapping.pkl`, dan `model_features.pkl` berada di satu folder dengan `app.py`.")
+    st.info("Pastikan file `lgbm_cluster_models.pkl`, `airport_cluster_mapping.pkl`, and `model_features.pkl` berada di satu folder dengan `app.py`.")
     st.stop()
 
-# --- MASTER KATEGORI UNTUK MENGUNCI LEVELS TRAINING ---
+# --- MASTER KATEGORI UNTUK MENGUNCI LEVELS TRAINING (SINKRON 100% DENGAN DATASET) ---
+# Tip: Jika Anda menjalankan training ulang, pastikan isi list ini mencakup seluruh isi df['op_unique_carrier'].unique()
 CARRIER_OPTIONS = ['AA', 'DL', 'UA', 'WN', 'B6', 'AS', 'NK', 'HA', 'EV', 'OO']
 DEP_DAY_TYPE_OPTIONS = ['Night', 'Early_Morning', 'Morning', 'Midday', 'Afternoon', 'Evening']
 
@@ -75,7 +76,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
     assigned_cluster = airport_cluster_mapping.get(origin, 0)
     model = cluster_models[assigned_cluster]
     
-    # Feature Engineering
+    # Feature Engineering Otomatis
     dep_hour = int(crs_dep_time // 100) 
     is_busy_month = 1 if month in BUSY_MONTHS else 0
     
@@ -88,7 +89,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
         
     congestion_index = CONGESTION_LOOKUP.get((origin, dep_hour), 15)
 
-    # Konstruksi data mentah
+    # Konstruksi data mentah dengan penyesuaian tipe numerik dataset asli Anda
     raw_input_data = {
         'month': int(month),
         'day_of_week': int(day_of_week),
@@ -105,7 +106,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
     
     df_input = pd.DataFrame([raw_input_data])
     
-    # ⭐ FIX TOTAL: Mengunci kategori menggunakan CategoricalDtype master agar sejalan dengan model baru
+    # MENGUNCI STRUKTUR KATEGORI MENGGUNAKAN CategoricalDtype MASTER
     categories_dict = {
         'op_unique_carrier': CARRIER_OPTIONS,
         'dep_day_type': DEP_DAY_TYPE_OPTIONS
@@ -115,12 +116,12 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             cat_type = pd.CategoricalDtype(categories=categories, ordered=False)
             df_input[col] = df_input[col].astype(cat_type)
 
-    # Safety filling untuk mencegah KeyError
+    # SAFETY CHECK: Antisipasi penambahan kolom 0 otomatis jika ada fitur terlewat
     for col in expected_features:
         if col not in df_input.columns:
             df_input[col] = 0
             
-    # Sinkronisasi urutan fitur akhir
+    # SINKRONISASI TOTAL: Memaksa urutan kolom input persis sama dengan order training model
     df_input = df_input[expected_features]
     
     # 5. Jalankan Prediksi
