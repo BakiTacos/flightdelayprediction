@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 st.title("✈️ Multi-Cluster Flight Delay Prediction App")
-st.markdown("Aplikasi prediksi keterlambatan penerbangan cerdas dengan **Dynamic Feature Importance (Explainable AI)**.")
+st.markdown("Aplikasi prediksi keterlambatan penerbangan cerdas dengan **Dual Analysis (Kontekstual & Saintifik)**.")
 st.markdown("---")
 
 # 2. Load Artefak Multi-Model
@@ -132,6 +132,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
         st.subheader("💡 Hasil Analisis Prediksi:")
         st.sidebar.info(f"📍 **Routing Status:** Bandara {origin} otomatis diproses menggunakan **Model Cluster {assigned_cluster}**.")
 
+        # --- TAMPILAN STATUS PREDIKSI UTAMA ---
         if prediction == 1:
             st.error(f"⚠️ **Penerbangan Diprediksi DELAY** (Probabilitas Risiko Keterlambatan: {prediction_proba[1]*100:.2f}%)")
         else:
@@ -139,52 +140,84 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             
         st.markdown("---")
         
-        # --- DYNAMIC FEATURE IMPORTANCE SIMULATOR ---
-        st.markdown("### 📊 Faktor Utama Penentu Keputusan Model")
-        st.write(f"Berikut adalah tingkat pengaruh operasional nyata yang diekstrak langsung dari **Model Cluster {assigned_cluster}** saat mengevaluasi data penerbangan Anda:")
-
-        # Mengambil skor split/gain asli dari internal model pkl terpilih
-        importances = model.feature_importances_
+        # Membuat Layout 2 Kolom untuk Hasil Analisis (Teks di Kiri, Grafik di Kanan)
+        col_ans1, col_ans2 = st.columns([1, 1])
         
-        # Membuat Dataframe perangkingan fitur
-        df_importance = pd.DataFrame({
-            'Indikator Operasional': expected_features,
-            'Skor Kepentingan (Gain)': importances
-        }).sort_values(by='Skor Kepentingan (Gain)', ascending=False)
-        
-        # Normalisasi ke format persentase (0% - 100%) agar intuitif
-        total_gain = df_importance['Skor Kepentingan (Gain)'].sum()
-        if total_gain > 0:
-            df_importance['Bobot Pengaruh (%)'] = (df_importance['Skor Kepentingan (Gain)'] / total_gain) * 100
-        else:
-            df_importance['Bobot Pengaruh (%)'] = 0.0
+        with col_ans1:
+            # --- LAPIS 1: DIAGNOSIS KONTEKSTUAL (IF-ELSE CERDAS) ---
+            st.markdown("### 🔍 Deskripsi Faktor Penyebab")
+            st.write("Berdasarkan silsilah parameter kombinasi input Anda, berikut adalah interpretasi operasionalnya:")
+            
+            reasons_delayed = []
+            reasons_ontime = []
 
-        # Menampilkan Bar Chart Horizontal interaktif bawaan Streamlit
-        st.bar_chart(
-            df_importance.head(7), 
-            x='Indikator Operasional', 
-            y='Bobot Pengaruh (%)', 
-            horizontal=True,
-            color='#2ca02c' if prediction == 0 else '#d62728' # Hijau jika on-time, merah jika delay
-        )
+            # Logika Aturan Bulan Sibuk
+            if is_busy_month == 1:
+                reasons_delayed.append(f"🔴 **High Season Alert:** Bulan {month} secara historis merupakan puncak liburan/cuaca tertentu pada Cluster {assigned_cluster} yang rentan memicu delay massal.")
+            else:
+                reasons_ontime.append(f"🟢 **Kondisi Musim Stabil:** Bulan {month} berada pada grafik lalu lintas penerbangan tahunan yang normal.")
 
-        # Mengambil 3 fitur teratas yang paling mendominasi saat itu
-        top_features = df_importance['Indikator Operasional'].head(3).tolist()
-        
-        st.info(f"💡 **Analisis Kontekstual Cluster:** Model menetapkan status penerbangan ini menjadi **{'DELAY' if prediction == 1 else 'ON TIME'}** karena dipengaruhi secara dominan oleh 3 faktor teratas, yaitu: **{', '.join(top_features)}**.")
+            # Logika Aturan Kemacetan Real-Time Bandara
+            if congestion_index > 40:
+                reasons_delayed.append(f"🔴 **Trafik Bandara Sangat Padat:** Slot keberangkatan jam {dep_hour}:00 di bandara {origin} terdeteksi memiliki kepadatan tinggi (Indeks Kepadatan: {congestion_index}).")
+            elif congestion_index <= 20:
+                reasons_ontime.append(f"🟢 **Trafik Bandara Aman:** Jadwal penerbangan di bandara asal {origin} tergolong lengang pada jam {dep_hour}:00.")
+            else:
+                reasons_ontime.append(f"🟡 **Trafik Bandara Wajar:** Sifat kepadatan lalu lintas udara berada pada batas kapasitas operasional aman.")
+
+            # Logika Pola Jam Terbang (Malam hari/Pagi buta)
+            if dep_day_type in ['Night', 'Evening'] and prediction == 1:
+                reasons_delayed.append(f"⚠️ **Efek Domino Waktu Malam:** Keberangkatan pada fase `{dep_day_type}` sangat rentan terkena akumulasi keterlambatan pesawat dari jadwal penerbangan subuh/siang hari sebelumnya.")
+
+            # Menampilkan interpretasi teks
+            if prediction == 1:
+                st.warning("🔺 **Indikator Utama Pemicu Risiko Delay:**")
+                for item in reasons_delayed if reasons_delayed else ["• Pola pergerakan rute maskapai gabungan pada jam ini secara historis membentuk kecenderungan delay."]:
+                    st.write(item)
+            else:
+                st.info("🔹 **Indikator Utama Pendukung Ketepatan Waktu:**")
+                for item in reasons_ontime if reasons_ontime else ["• Parameter alokasi waktu terbang dan kesiapan armada terpantau berada di zona aman model."]:
+                    st.write(item)
+
+        with col_ans2:
+            # --- LAPIS 2: DYNAMIC FEATURE IMPORTANCE (SAINTIFIK) ---
+            st.markdown("### 📊 Bobot Pengaruh Fitur Internal")
+            
+            # Mengambil skor kepentingan fitur asli langsung dari model .pkl aktif
+            importances = model.feature_importances_
+            df_importance = pd.DataFrame({
+                'Indikator': expected_features,
+                'Skor (Gain)': importances
+            }).sort_values(by='Skor (Gain)', ascending=False)
+            
+            # Normalisasi ke 100%
+            total_gain = df_importance['Skor (Gain)'].sum()
+            df_importance['Bobot Pengaruh (%)'] = (df_importance['Skor (Gain)'] / total_gain * 100) if total_gain > 0 else 0.0
+
+            # Render grafik batang interaktif Streamlit
+            st.bar_chart(
+                df_importance.head(6), 
+                x='Indikator', 
+                y='Bobot Pengaruh (%)', 
+                horizontal=True,
+                color='#2ca02c' if prediction == 0 else '#d62728'
+            )
+            
+            top_3 = df_importance['Indikator'].head(3).tolist()
+            st.caption(f"💡 *Tiga fitur yang paling mendikte struktur keputusan matematika LightGBM pada pengujian ini secara berurutan adalah: **{', '.join(top_3)}**.*")
 
         # Tab Rincian Data Teknis untuk Transparansi Nilai
-        with st.expander("⚙️ Rincian Probabilitas & Komponen Log Data"):
+        with st.expander("⚙️ Rincian Nilai Probabilitas Matematika"):
             col_tab1, col_tab2 = st.columns(2)
             with col_tab1:
                 st.json({
-                    "ID Model Cluster Aktif": int(assigned_cluster),
+                    "ID Model Cluster Terpilih": int(assigned_cluster),
                     "Probabilitas Tepat Waktu (On-Time)": f"{prediction_proba[0]*100:.2f}%",
                     "Probabilitas Terlambat (Delay)": f"{prediction_proba[1]*100:.2f}%"
                 })
             with col_tab2:
                 st.json({
-                    "Jam Keberangkatan (dep_hour)": dep_hour,
+                    "Jam Keberangkatan": dep_hour,
                     "Kategori Waktu Hari": dep_day_type,
                     "Indeks Kemacetan Bandara": congestion_index,
                     "Maskapai Terbaca Model": op_unique_carrier_model
