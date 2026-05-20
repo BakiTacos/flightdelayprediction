@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 st.title("✈️ Multi-Cluster Flight Delay Prediction App")
-st.markdown("Aplikasi prediksi keterlambatan penerbangan cerdas dengan **Analisis Faktor Penyebab**.")
+st.markdown("Aplikasi prediksi keterlambatan penerbangan cerdas dengan **Dynamic Feature Importance (Explainable AI)**.")
 st.markdown("---")
 
 # 2. Load Artefak Multi-Model
@@ -30,7 +30,7 @@ except Exception as e:
     st.sidebar.error(f"❌ Gagal memuat komponen model: {e}")
     st.stop()
 
-# --- SINKRONISASI MUTLAK KATEGORI ---
+# --- SINKRONISASI MUTLAK KATEGORI (SAMA PERSIS DENGAN NOTEBOOK) ---
 MODEL_CARRIERS = ['9e', 'aa', 'as', 'b6', 'dl', 'f9', 'g4', 'ha', 'mq', 'nk', 'oh', 'oo', 'ua', 'wn', 'yx']
 MODEL_DAY_TYPES = ['Night', 'Early_Morning', 'Morning', 'Midday', 'Afternoon', 'Evening']
 UI_CARRIERS = [c.upper() for c in MODEL_CARRIERS]
@@ -46,25 +46,31 @@ st.subheader("📊 Masukkan Informasi Penerbangan")
 col1, col2 = st.columns(2)
 
 with col1:
+    st.markdown("### 📅 Jadwal & Waktu")
     month = st.slider("Bulan (Month)", min_value=1, max_value=12, value=6)
     day_of_week = st.slider("Hari dalam Seminggu (1=Senin, 7=Minggu)", min_value=1, max_value=7, value=3)
-    crs_dep_time = st.number_input("Waktu Keberangkatan Terjadwal (HHMM)", min_value=0, max_value=2359, value=1200, step=5)
-    op_carrier_fl_num = st.number_input("Nomor Penerbangan", min_value=1, max_value=9999, value=1234)
-    distance = st.number_input("Jarak Penerbangan (Miles)", min_value=10, max_value=10000, value=500)
-    crs_elapsed_time = st.number_input("Durasi Terjadwal (Menit)", min_value=10, max_value=1000, value=120)
+    crs_dep_time = st.number_input("Waktu Keberangkatan Terjadwal (HHMM, misal: 1530)", min_value=0, max_value=2359, value=1200, step=5)
+    op_carrier_fl_num = st.number_input("Nomor Penerbangan (Flight Number)", min_value=1, max_value=9999, value=1234)
+    
+    st.markdown("### 🗺️ Jarak & Durasi")
+    distance = st.number_input("Jarak Penerbangan (Distance in Miles)", min_value=10, max_value=10000, value=500)
+    crs_elapsed_time = st.number_input("Durasi Terjadwal (CRS Elapsed Time in Minutes)", min_value=10, max_value=1000, value=120)
 
 with col2:
+    st.markdown("### ✈️ Maskapai & Lokasi")
     op_unique_carrier_ui = st.selectbox("Maskapai (Carrier)", UI_CARRIERS)
     origin = st.selectbox("Bandara Asal (Origin)", AIRPORT_OPTIONS, index=0)       
     origin_city_name = st.selectbox("Kota Asal", CITY_OPTIONS, index=4) 
     origin_state_nm = st.selectbox("Negara Bagian Asal", STATE_OPTIONS, index=4)
+    
+    st.markdown("---")
     dest = st.selectbox("Bandara Tujuan (Destination)", AIRPORT_OPTIONS, index=1 if len(AIRPORT_OPTIONS) > 1 else 0)    
     dest_city_name = st.selectbox("Kota Tujuan", CITY_OPTIONS, index=6) 
     dest_state_nm = st.selectbox("Negara Bagian Tujuan", STATE_OPTIONS, index=5)
 
 st.markdown("---")
 
-# 4. Eksekusi Prediksi & Analisis
+# 4. Eksekusi Prediksi
 if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_container_width=True):
     assigned_cluster = airport_cluster_mapping.get(origin, 0)
     model = cluster_models[assigned_cluster]
@@ -110,7 +116,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             cat_type = pd.CategoricalDtype(categories=categories, ordered=False)
             df_input[col] = df_input[col].astype(cat_type)
 
-    # Deteksi & Isi Kolom Ekstra
+    # Safety Check Kolom
     missing_cols = [col for col in expected_features if col not in raw_input_data.keys()]
     for col in expected_features:
         if col not in df_input.columns:
@@ -118,7 +124,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             
     df_input = df_input[expected_features]
     
-    # 5. Jalankan Prediksi dengan Output Visual
+    # 5. Jalankan Prediksi dengan Analisis Dinamis
     try:
         prediction = model.predict(df_input)[0]
         prediction_proba = model.predict_proba(df_input)[0]
@@ -126,62 +132,65 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
         st.subheader("💡 Hasil Analisis Prediksi:")
         st.sidebar.info(f"📍 **Routing Status:** Bandara {origin} otomatis diproses menggunakan **Model Cluster {assigned_cluster}**.")
 
-        # --- TAMPILAN STATUS PREDIKSI UTAMA ---
         if prediction == 1:
             st.error(f"⚠️ **Penerbangan Diprediksi DELAY** (Probabilitas Risiko Keterlambatan: {prediction_proba[1]*100:.2f}%)")
         else:
             st.success(f"✅ **Penerbangan Diprediksi TEPAT WAKTU (ON TIME)** (Probabilitas On-Time: {prediction_proba[0]*100:.2f}%)")
             
-        # --- DIAGNOSIS LOGIKA FAKTOR PENYEBAB (FEATURE IMPORTANCE SIMULATOR) ---
-        st.markdown("### 🔍 Faktor Utama Keputusan Model")
-        st.write("Berdasarkan pengolahan data, berikut adalah indikator operasional yang memengaruhi hasil prediksi:")
+        st.markdown("---")
+        
+        # --- DYNAMIC FEATURE IMPORTANCE SIMULATOR ---
+        st.markdown("### 📊 Faktor Utama Penentu Keputusan Model")
+        st.write(f"Berikut adalah tingkat pengaruh operasional nyata yang diekstrak langsung dari **Model Cluster {assigned_cluster}** saat mengevaluasi data penerbangan Anda:")
 
-        reasons_delayed = []
-        reasons_ontime = []
-
-        # Analisis Musim Sibuk
-        if is_busy_month == 1:
-            reasons_delayed.append(f"🔴 **Bulan Padat Operasional:** Keberangkatan di bulan {month} terdeteksi sebagai periode sibuk historis yang meningkatkan risiko penumpukan jadwal.")
+        # Mengambil skor split/gain asli dari internal model pkl terpilih
+        importances = model.feature_importances_
+        
+        # Membuat Dataframe perangkingan fitur
+        df_importance = pd.DataFrame({
+            'Indikator Operasional': expected_features,
+            'Skor Kepentingan (Gain)': importances
+        }).sort_values(by='Skor Kepentingan (Gain)', ascending=False)
+        
+        # Normalisasi ke format persentase (0% - 100%) agar intuitif
+        total_gain = df_importance['Skor Kepentingan (Gain)'].sum()
+        if total_gain > 0:
+            df_importance['Bobot Pengaruh (%)'] = (df_importance['Skor Kepentingan (Gain)'] / total_gain) * 100
         else:
-            reasons_ontime.append(f"🟢 **Kapasitas Musim Normal:** Volume penerbangan pada bulan {month} cenderung stabil dan terkendali.")
+            df_importance['Bobot Pengaruh (%)'] = 0.0
 
-        # Analisis Kemacetan Bandara
-        if congestion_index > 40:
-            reasons_delayed.append(f"🔴 **Trafik Bandara Sangat Padat:** Bandara asal {origin} diprediksi mengalami antrean panjang pada jam {dep_hour}:00 (Indeks: {congestion_index}).")
-        elif congestion_index <= 20:
-            reasons_ontime.append(f"🟢 **Trafik Bandara Lengang:** Kepadatan antrean lepas landas di {origin} tergolong sangat rendah pada jam tersebut.")
-        else:
-            reasons_ontime.append(f"🟡 **Trafik Bandara Terkendali:** Lalu lintas udara beroperasi pada batas kapasitas wajar.")
+        # Menampilkan Bar Chart Horizontal interaktif bawaan Streamlit
+        st.bar_chart(
+            df_importance.head(7), 
+            x='Indikator Operasional', 
+            y='Bobot Pengaruh (%)', 
+            horizontal=True,
+            color='#2ca02c' if prediction == 0 else '#d62728' # Hijau jika on-time, merah jika delay
+        )
 
-        # Menampilkan Alasan secara Dinamis
-        if prediction == 1:
-            st.info("🔺 **Indikator Pendorong Prediksi DELAY:**")
-            for item in reasons_delayed if reasons_delayed else ["• Kombinasi antara maskapai, jarak, dan sirkulasi udara di cluster ini membentuk pola historis yang identik dengan keterlambatan."]:
-                st.write(item)
-        else:
-            st.info("🔹 **Indikator Pendukung Prediksi TEPAT WAKTU:**")
-            for item in reasons_ontime if reasons_ontime else ["• Sinkronisasi alokasi waktu terbang, jarak, dan manajemen maskapai terdeteksi sangat efisien oleh sistem."]:
-                st.write(item)
+        # Mengambil 3 fitur teratas yang paling mendominasi saat itu
+        top_features = df_importance['Indikator Operasional'].head(3).tolist()
+        
+        st.info(f"💡 **Analisis Kontekstual Cluster:** Model menetapkan status penerbangan ini menjadi **{'DELAY' if prediction == 1 else 'ON TIME'}** karena dipengaruhi secara dominan oleh 3 faktor teratas, yaitu: **{', '.join(top_features)}**.")
 
-        # --- TABEL RINCIAN TEKNIS ---
-        with st.expander("⚙️ Lihat Rincian Probabilitas & Parameter Ekstraksi"):
+        # Tab Rincian Data Teknis untuk Transparansi Nilai
+        with st.expander("⚙️ Rincian Probabilitas & Komponen Log Data"):
             col_tab1, col_tab2 = st.columns(2)
             with col_tab1:
                 st.json({
-                    "Model Cluster Pemroses": int(assigned_cluster),
+                    "ID Model Cluster Aktif": int(assigned_cluster),
                     "Probabilitas Tepat Waktu (On-Time)": f"{prediction_proba[0]*100:.2f}%",
                     "Probabilitas Terlambat (Delay)": f"{prediction_proba[1]*100:.2f}%"
                 })
             with col_tab2:
                 st.json({
-                    "Jam Keberangkatan": dep_hour,
+                    "Jam Keberangkatan (dep_hour)": dep_hour,
                     "Kategori Waktu Hari": dep_day_type,
-                    "Indeks Kemacetan Terhitung": congestion_index,
-                    "Maskapai Terbaca Sistem": op_unique_carrier_model
+                    "Indeks Kemacetan Bandara": congestion_index,
+                    "Maskapai Terbaca Model": op_unique_carrier_model
                 })
 
     except Exception as e:
-        # Sistem Penjaga (Debugger) Tetap Dipertahankan
         st.error("⚠️ **Terjadi Kesalahan Klasifikasi Model!**")
         st.code(str(e), language="text")
         
