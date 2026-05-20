@@ -141,11 +141,16 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
     df_input = pd.DataFrame([raw_input_data])
     
     # Menyamakan tipe data teks sisa menjadi kategori agar dikenali LightGBM
-    cat_cols = ['op_unique_carrier', 'dep_day_type']
-    for col in cat_cols:
+    categories_dict = {
+        'op_unique_carrier': CARRIER_OPTIONS,
+        'dep_day_type': ['Night', 'Early_Morning', 'Morning', 'Midday', 'Afternoon', 'Evening']
+    }
+    
+    for col, categories in categories_dict.items():
         if col in df_input.columns:
-            df_input[col] = df_input[col].astype('category')
-
+            # Menggunakan pd.CategoricalDtype untuk mengunci daftar kategori asli
+            cat_type = pd.CategoricalDtype(categories=categories, ordered=False)
+            df_input[col] = df_input[col].astype(cat_type)
     # --- DETEKSI OTOMATIS ANTISIPASI KEYERROR (SAFETY CHECK) ---
     # Jika ada fitur yang diinginkan oleh model training tapi tidak ada di df_input, buat kolomnya dengan isi 0
     for col in expected_features:
