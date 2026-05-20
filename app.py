@@ -5,31 +5,32 @@ import joblib
 
 # 1. Konfigurasi Halaman
 st.set_page_config(
-    page_title="Flight Delay Prediction",
+    page_title="Multi-Cluster Flight Delay Prediction",
     page_icon="✈️",
     layout="wide"
 )
 
-st.title("✈️ Flight Delay Prediction App")
-st.markdown("Prediksi status keterlambatan penerbangan berdasarkan karakteristik operasional historis.")
+st.title("✈️ Multi-Cluster Flight Delay Prediction App")
+st.markdown("Aplikasi prediksi keterlambatan menggunakan pendekatan Multi-Model LightGBM berbasis Cluster Bandara.")
 st.markdown("---")
 
-# 2. Load Model & Fitur Artefak
+# 2. Load Artefak Multi-Model
 @st.cache_resource
-def load_model_artifacts():
-    model = joblib.load("lgbm_flight_delay_model.pkl")
-    features = joblib.load("model_features.pkl")
-    return model, features
+def load_multi_model_artifacts():
+    models = joblib.load("lgbm_cluster_models.pkl")         # Mengurangi beban RAM dengan memuat dict model
+    cluster_map = joblib.load("airport_cluster_mapping.pkl") # Pemetaan bandara -> ID Cluster
+    features = joblib.load("model_features.pkl")             # Fitur yang diterima LightGBM
+    return models, cluster_map, features
 
 try:
-    model, expected_features = load_model_artifacts()
-    st.sidebar.success("✅ Model & Fitur Berhasil Dimuat")
+    cluster_models, airport_cluster_mapping, expected_features = load_multi_model_artifacts()
+    st.sidebar.success("✅ Semua Model Cluster & Pemetaan Berhasil Dimuat")
 except Exception as e:
     st.sidebar.error(f"❌ Gagal memuat komponen model: {e}")
     st.stop()
 
 # ------------------------------------------------------------------
-# DATALANDING / KUMPULAN DATA HISTORIS DARI FEATURE ENGINEERING ANDA
+# CONFIG DATA HISTORIS UNTUK FEATURE ENGINEERING
 # ------------------------------------------------------------------
 PEAK_HOURS = [7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19] 
 BUSY_MONTHS = [7, 8, 10] 
@@ -42,13 +43,12 @@ CONGESTION_LOOKUP = {
 }
 
 CARRIER_OPTIONS = ['AA', 'DL', 'UA', 'WN', 'B6', 'AS', 'NK', 'HA', 'EV', 'OO']
-AIRPORT_OPTIONS = ['ATL', 'ORD', 'DFW', 'DEN', 'LAX', 'SFO', 'JFK', 'CLT', 'LAS', 'PHX', 'MIA', 'MCO']
-STATE_OPTIONS = ['Georgia', 'Illinois', 'Texas', 'Colorado', 'California', 'New York', 'North Carolina', 'Nevada', 'Arizona', 'Florida']
+AIRPORT_OPTIONS = list(airport_cluster_mapping.keys()) if airport_cluster_mapping else ['LAX', 'JFK', 'ORD', 'ATL']
+STATE_OPTIONS = ['Georgia', 'Illinois', 'Texas', 'Colorado', 'California', 'New York', 'Florida']
 
 CITY_OPTIONS = [
     'Atlanta, GA', 'Chicago, IL', 'Dallas/Fort Worth, TX', 'Denver, CO', 
-    'Los Angeles, CA', 'San Francisco, CA', 'New York, NY', 'Charlotte, NC', 
-    'Las Vegas, NV', 'Phoenix, AZ', 'Miami, FL', 'Orlando, FL'
+    'Los Angeles, CA', 'San Francisco, CA', 'New York, NY', 'Miami, FL'
 ]
 
 # 3. Form Input Pengguna
@@ -71,32 +71,33 @@ with col2:
     st.markdown("### ✈️ Maskapai & Lokasi")
     op_unique_carrier = st.selectbox("Maskapai (Carrier)", CARRIER_OPTIONS)
     
-    origin = st.selectbox("Bandara Asal (Origin)", AIRPORT_OPTIONS, index=4)       
+    origin = st.selectbox("Bandara Asal (Origin)", AIRPORT_OPTIONS, index=0)       
     origin_city_name = st.selectbox("Kota Asal (Origin City Name)", CITY_OPTIONS, index=4) 
     origin_state_nm = st.selectbox("Negara Bagian Asal (Origin State)", STATE_OPTIONS, index=4)
     
     st.markdown("---")
-    dest = st.selectbox("Bandara Tujuan (Destination)", AIRPORT_OPTIONS, index=6)    
+    dest = st.selectbox("Bandara Tujuan (Destination)", AIRPORT_OPTIONS, index=1 if len(AIRPORT_OPTIONS) > 1 else 0)    
     dest_city_name = st.selectbox("Kota Tujuan (Destination City Name)", CITY_OPTIONS, index=6) 
     dest_state_nm = st.selectbox("Negara Bagian Tujuan (Destination State)", STATE_OPTIONS, index=5)
 
 st.markdown("---")
 
-# 4. Eksekusi Prediksi & Proses Otomatis Feature Engineering
+# 4. Eksekusi Prediksi Multi-Model
 if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_container_width=True):
     
-    # --- PROSES REKAYASA FITUR ---
+    # --- DETEKSI CLUSTER BERDASARKAN BANDARA ASAL ---
+    # Jika bandara baru tidak ada di mapping historis, arahkan ke cluster default (misal 0)
+    assigned_cluster = airport_cluster_mapping.get(origin, 0)
+    
+    # Ambil model spesifik untuk cluster ini
+    model = cluster_models[assigned_cluster]
+    
+    # --- PROSES REKAYASA FITUR (Hanya yang dipakai oleh Model setelah drop_cols) ---
     departure_hour = int(crs_dep_time // 100)
-    route = f"{origin}-{dest}"
     is_peak = 1 if departure_hour in PEAK_HOURS else 0
     is_weekend = 1 if day_of_week in [6, 7] else 0
-    
-    airline_origin = f"{op_unique_carrier}-{origin}"
-    airline_route = f"{op_unique_carrier}-{route}"
-    
     speed = float(distance / crs_elapsed_time) if crs_elapsed_time > 0 else 0.0
     is_busy_month = 1 if month in BUSY_MONTHS else 0
-    
     is_hub_origin = 1 if origin in HUB_ORIGINS else 0
     is_hub_dest = 1 if dest in HUB_DESTS else 0
     
@@ -132,29 +133,19 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
     else:
         day_bin = 'late'
         
-    # congestion_index
     congestion_index = CONGESTION_LOOKUP.get((origin, departure_hour), 15)
 
-    # --- MEMASUKKAN HASIL KE DALAM DATAFRAME ---
+    # --- MEMASUKKAN FITUR AKTIF KE DALAM DATAFRAME ---
     raw_input_data = {
         'month': int(month),
         'day_of_month': int(day_of_month),
         'day_of_week': int(day_of_week),
         'op_unique_carrier': op_unique_carrier,
-        'origin': origin,
-        'origin_city_name': origin_city_name,
-        'origin_state_nm': origin_state_nm,
-        'dest': dest,
-        'dest_city_name': dest_city_name,
-        'dest_state_nm': dest_state_nm,
         'crs_elapsed_time': float(crs_elapsed_time),
         'distance': float(distance),
         'Departure_Hour': int(departure_hour),
-        'Route': route,
         'is_peak': int(is_peak),
         'is_weekend': int(is_weekend),
-        'airline_origin': airline_origin,
-        'airline_route': airline_route,
         'speed': float(speed),
         'is_busy_month': int(is_busy_month),
         'is_hub_origin': int(is_hub_origin),
@@ -163,105 +154,75 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
         'duration_bin': duration_bin,
         'day_bin': day_bin,
         'congestion_index': int(congestion_index)
+        # origin, dest, Route, dkk otomatis tidak dimasukkan karena ada di daftar drop_cols Anda
     }
     
     df_input = pd.DataFrame([raw_input_data])
     
-    cat_cols = [
-        'op_unique_carrier', 'origin', 'origin_city_name', 'origin_state_nm', 
-        'dest', 'dest_city_name', 'dest_state_nm', 'Route', 
-        'airline_origin', 'airline_route', 'dep_day_type', 'duration_bin', 'day_bin'
-    ]
+    # Set tipe kategorikal sisa fitur teks yang dikonsumsi model
+    cat_cols = ['op_unique_carrier', 'dep_day_type', 'duration_bin', 'day_bin']
     for col in cat_cols:
-        df_input[col] = df_input[col].astype('category')
+        if col in df_input.columns:
+            df_input[col] = df_input[col].astype('category')
 
+    # Re-order kolom menyesuaikan expected_features untuk cluster model ini
     df_input = df_input[expected_features]
     
-    # 5. Prediksi
+    # 5. Eksekusi Prediksi
     try:
         prediction = model.predict(df_input)[0]
         prediction_proba = model.predict_proba(df_input)[0]
         
-        # 6. TAMPILAN OUTPUT UTAMA
+        # 6. Render Hasil Analisis UI
         st.subheader("💡 Hasil Analisis Prediksi:")
         
+        # Informasi Info Router Cluster
+        st.sidebar.info(f"📍 **Routing Status:** Bandara {origin} secara otomatis diarahkan & diproses menggunakan **Model Cluster {assigned_cluster}**.")
+
         if prediction == 1:
             st.error(f"⚠️ **Penerbangan Diprediksi DELAY** (Probabilitas Risiko Keterlambatan: {prediction_proba[1]*100:.2f}%)")
         else:
             st.success(f"✅ **Penerbangan Diprediksi TEPAT WAKTU (ON TIME)** (Probabilitas On-Time: {prediction_proba[0]*100:.2f}%)")
             
-        # ------------------------------------------------------------------
-        # 7. BLOK BARU: DIAGNOSIS / PENYEBAB HASIL PREDIKSI
-        # ------------------------------------------------------------------
+        # Diagnosis Faktor Penyebab
         st.markdown("### 🔍 Mengapa Hasilnya Demikian?")
-        st.write("Berdasarkan kombinasi parameter rekayasa fitur yang Anda masukkan, berikut adalah faktor pemicu utama yang memengaruhi keputusan model:")
-
-        # Mengumpulkan poin-poin alasan
         reasons_delayed = []
         reasons_ontime = []
 
-        # Aturan Logika Waktu (is_peak & dep_day_type)
         if is_peak == 1:
-            reasons_delayed.append(f"🔴 **Jam Padat (`is_peak=1`):** Jam keberangkatan ({departure_hour}:00) berada pada waktu puncak lalu lintas penerbangan historis yang rawan memicu antrean.")
+            reasons_delayed.append(f"🔴 **Jam Kerja Padat (`is_peak=1`):** Waktu {departure_hour}:00 rentan antrean lepas landas pada Cluster {assigned_cluster}.")
         else:
-            reasons_ontime.append(f"🟢 **Jam Longgar (`is_peak=0`):** Jam keberangkatan ({departure_hour}:00) memiliki volume lalu lintas yang cenderung lebih sepi secara historis.")
+            reasons_ontime.append(f"🟢 **Jam Longgar (`is_peak=0`):** Waktu keberangkatan relatif sepi jadwal.")
 
-        # Aturan Logika Bulan (is_busy_month)
         if is_busy_month == 1:
-            reasons_delayed.append(f"🔴 **Musim Padat (`is_busy_month=1`):** Bulan {month} merupakan periode *high season* (liburan/cuaca tertentu) yang secara historis memiliki tingkat keterlambatan tinggi.")
-        else:
-            reasons_ontime.append(f"🟢 **Musim Normal (`is_busy_month=0`):** Bulan {month} dikategorikan memiliki frekuensi penerbangan yang stabil/normal.")
-
-        # Aturan Logika Kepadatan Lalu Lintas Nyata (congestion_index)
-        if congestion_index > 40:
-            reasons_delayed.append(f"🔴 **Trafik Bandara Tinggi (`congestion_index={congestion_index}`):** Bandara asal {origin} diprediksi sangat padat jadwal pada jam {departure_hour}:00.")
-        elif congestion_index < 20:
-            reasons_ontime.append(f"🟢 **Trafik Bandara Rendah (`congestion_index={congestion_index}`):** Bandara asal {origin} dalam kondisi lengang pada jam tersebut.")
-
-        # Aturan Logika Bandara Besar (HUB)
+            reasons_delayed.append(f"🔴 **High-Season Month:** Bulan {month} memiliki lonjakan volume penumpang historis.")
+        
         if is_hub_origin == 1:
-            reasons_delayed.append(f"🔴 **Bandara Asal Terlalu Besar (`is_hub_origin=1`):** Bandara {origin} masuk dalam kategori 10% Bandara Terbesar (HUB). Bandara besar rentan mengalami *efek domino* keterlambatan jadwal.")
-        if is_hub_dest == 1:
-            reasons_delayed.append(f"🔴 **Bandara Tujuan Terlalu Besar (`is_hub_dest=1`):** Bandara tujuan {dest} termasuk HUB utama yang berisiko menahan antrean mendarat pesawat.")
+            reasons_delayed.append(f"🔴 **Origin Airport Hub:** Bandara asal merupakan salah satu gerbang HUB tersibuk nasional.")
 
-        # Aturan Logika Kecepatan / Rasio Waktu Penerbangan (speed)
-        if speed > 7.0:
-            reasons_delayed.append(f"🔴 **Rasio Jadwal Ketat (`speed={speed:.2f}`):** Alokasi waktu terbang (`crs_elapsed_time`) terlalu sempit dibandingkan jarak tempuh, model mendeteksi adanya risiko tinggi kegagalan mengejar ketepatan waktu.")
-
-        # Menampilkan Alasan Berdasarkan Hasil Prediksi Akhir
         if prediction == 1:
-            st.info("🔺 **Faktor yang Mendorong Prediksi DELAY:**")
-            if reasons_delayed:
-                for item in reasons_delayed:
-                    st.write(item)
-            else:
-                st.write("• Karakteristik gabungan koordinat rute, maskapai, dan waktu operasional secara simultan membentuk kecenderungan delay.")
+            st.info("🔺 **Faktor Dominan Pemicu Delay:**")
+            for item in reasons_delayed if reasons_delayed else ["• Karakteristik gabungan data makro cluster mengindikasikan delay."]:
+                st.write(item)
         else:
-            st.info("🔹 **Faktor yang Mendorong Prediksi TEPAT WAKTU:**")
-            if reasons_ontime:
-                for item in reasons_ontime:
-                    st.write(item)
-            else:
-                st.write("• Parameter waktu, pemilihan bandara, dan kelonggaran jadwal penerbangan berada dalam batas aman historis model.")
+            st.info("🔹 **Faktor Dominan Pendukung On-Time:**")
+            for item in reasons_ontime if reasons_ontime else ["• Parameter operasional penerbangan berada di batas aman aman historis cluster."]:
+                st.write(item)
 
-        # ------------------------------------------------------------------
-        # Tab Breakdown Teknis
-        # ------------------------------------------------------------------
-        with st.expander("Lihat Rincian Probabilitas & Parameter Ekstraksi Otomatis"):
+        with st.expander("Lihat Rincian Probabilitas & Komponen Cluster"):
             col_tab1, col_tab2 = st.columns(2)
             with col_tab1:
                 st.json({
+                    "ID Cluster Pengolah": int(assigned_cluster),
                     "Probabilitas Tepat Waktu": f"{prediction_proba[0]*100:.2f}%",
-                    "Probabilitas Terlambat (Delay)": f"{prediction_proba[1]*100:.2f}%"
+                    "Probabilitas Terlambat": f"{prediction_proba[1]*100:.2f}%"
                 })
             with col_tab2:
                 st.json({
-                    "Departure Hour": departure_hour,
-                    "Route": route,
                     "Speed Ratio": f"{speed:.4f}",
                     "Congestion Index": congestion_index,
-                    "Day Bin": day_bin,
-                    "Duration Bin": duration_bin
+                    "Duration Bin": duration_bin,
+                    "Day Bin": day_bin
                 })
             
     except Exception as e:
