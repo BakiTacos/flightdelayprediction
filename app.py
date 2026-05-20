@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 st.title("✈️ Multi-Cluster Flight Delay Prediction App")
-st.markdown("Aplikasi prediksi keterlambatan menggunakan pendekatan Multi-Model LightGBM berbasis Cluster Bandara.")
+st.markdown("Aplikasi prediksi keterlambatan menggunakan pendekatan Multi-Model LightGBM berbasis Cluster Bandara (Full 6.9M Dataset Schema).")
 st.markdown("---")
 
 # 2. Load Artefak Multi-Model
@@ -27,9 +27,11 @@ try:
     st.sidebar.success("✅ Semua Model Cluster & Pemetaan Berhasil Dimuat")
 except Exception as e:
     st.sidebar.error(f"❌ Gagal memuat komponen model: {e}")
+    st.markdown("### ⚠️ Artefak Model Tidak Ditemukan")
+    st.info("Pastikan file `lgbm_cluster_models.pkl`, `airport_cluster_mapping.pkl`, dan `model_features.pkl` berada di satu folder dengan `app.py`.")
     st.stop()
 
-# --- DAFTAR KATEGORI MASTER YANG SEKARANG DIKUNCI 100% SAMA ---
+# --- MASTER KATEGORI UNTUK MENGUNCI LEVELS TRAINING ---
 CARRIER_OPTIONS = ['AA', 'DL', 'UA', 'WN', 'B6', 'AS', 'NK', 'HA', 'EV', 'OO']
 DEP_DAY_TYPE_OPTIONS = ['Night', 'Early_Morning', 'Morning', 'Midday', 'Afternoon', 'Evening']
 
@@ -68,7 +70,7 @@ with col2:
 
 st.markdown("---")
 
-# 4. Prediction Execution
+# 4. Eksekusi Prediksi
 if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_container_width=True):
     assigned_cluster = airport_cluster_mapping.get(origin, 0)
     model = cluster_models[assigned_cluster]
@@ -86,6 +88,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
         
     congestion_index = CONGESTION_LOOKUP.get((origin, dep_hour), 15)
 
+    # Konstruksi data mentah
     raw_input_data = {
         'month': int(month),
         'day_of_week': int(day_of_week),
@@ -102,7 +105,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
     
     df_input = pd.DataFrame([raw_input_data])
     
-    # Mengunci tipe data CategoricalDtype agar sinkron dengan levels master hasil training baru
+    # ⭐ FIX TOTAL: Mengunci kategori menggunakan CategoricalDtype master agar sejalan dengan model baru
     categories_dict = {
         'op_unique_carrier': CARRIER_OPTIONS,
         'dep_day_type': DEP_DAY_TYPE_OPTIONS
@@ -112,13 +115,15 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             cat_type = pd.CategoricalDtype(categories=categories, ordered=False)
             df_input[col] = df_input[col].astype(cat_type)
 
-    # Safety Fill & Reorder Kolom
+    # Safety filling untuk mencegah KeyError
     for col in expected_features:
         if col not in df_input.columns:
             df_input[col] = 0
+            
+    # Sinkronisasi urutan fitur akhir
     df_input = df_input[expected_features]
     
-    # 5. Predict Execution
+    # 5. Jalankan Prediksi
     try:
         prediction = model.predict(df_input)[0]
         prediction_proba = model.predict_proba(df_input)[0]
@@ -131,11 +136,19 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
         else:
             st.success(f"✅ **Penerbangan Diprediksi TEPAT WAKTU (ON TIME)** (Probabilitas On-Time: {prediction_proba[0]*100:.2f}%)")
             
-        with st.expander("Lihat Rincian Probabilitas"):
-            st.json({
-                "Model Cluster Pemroses": int(assigned_cluster),
-                "Probabilitas Tepat Waktu (On-Time)": f"{prediction_proba[0]*100:.2f}%",
-                "Probabilitas Terlambat (Delay)": f"{prediction_proba[1]*100:.2f}%"
-            })
+        with st.expander("Lihat Rincian Probabilitas & Fitur"):
+            col_tab1, col_tab2 = st.columns(2)
+            with col_tab1:
+                st.json({
+                    "Model Cluster Pemroses": int(assigned_cluster),
+                    "Probabilitas Tepat Waktu (On-Time)": f"{prediction_proba[0]*100:.2f}%",
+                    "Probabilitas Terlambat (Delay)": f"{prediction_proba[1]*100:.2f}%"
+                })
+            with col_tab2:
+                st.json({
+                    "Jam Keberangkatan": dep_hour,
+                    "Kategori Waktu Hari": dep_day_type,
+                    "Indeks Kemacetan Terhitung": congestion_index
+                })
     except Exception as e:
         st.error(f"Terjadi kesalahan saat memproses prediksi model: {e}")
