@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 st.title("✈️ Multi-Cluster Flight Delay Prediction App")
-st.markdown("Aplikasi prediksi keterlambatan menggunakan pendekatan Multi-Model LightGBM berbasis Cluster Bandara (Full 6.9M Dataset Schema).")
+st.markdown("Aplikasi prediksi keterlambatan menggunakan pendekatan Multi-Model LightGBM berbasis Cluster Bandara.")
 st.markdown("---")
 
 # 2. Load Artefak Multi-Model
@@ -27,14 +27,16 @@ try:
     st.sidebar.success("✅ Semua Model Cluster & Pemetaan Berhasil Dimuat")
 except Exception as e:
     st.sidebar.error(f"❌ Gagal memuat komponen model: {e}")
-    st.markdown("### ⚠️ Artefak Model Tidak Ditemukan")
-    st.info("Pastikan file `lgbm_cluster_models.pkl`, `airport_cluster_mapping.pkl`, and `model_features.pkl` berada di satu folder dengan `app.py`.")
     st.stop()
 
-# --- MASTER KATEGORI UNTUK MENGUNCI LEVELS TRAINING (SINKRON 100% DENGAN DATASET) ---
-# Tip: Jika Anda menjalankan training ulang, pastikan isi list ini mencakup seluruh isi df['op_unique_carrier'].unique()
+# --- SINKRONISASI KATEGORI SECARA EXPLICIT INDEKS (ANTI-MISMATCH) ---
+# Urutan di bawah ini disesuaikan dengan standar kode unik penerbangan US
 CARRIER_OPTIONS = ['AA', 'DL', 'UA', 'WN', 'B6', 'AS', 'NK', 'HA', 'EV', 'OO']
 DEP_DAY_TYPE_OPTIONS = ['Night', 'Early_Morning', 'Morning', 'Midday', 'Afternoon', 'Evening']
+
+# Membuat kamus pemetaan teks -> angka indeks (Sama seperti cara internal LightGBM membaca kategori)
+carrier_mapping = {name: idx for idx, name in enumerate(CARRIER_OPTIONS)}
+day_type_mapping = {name: idx for idx, name in enumerate(DEP_DAY_TYPE_OPTIONS)}
 
 BUSY_MONTHS = [7, 8, 10] 
 CONGESTION_LOOKUP = {('JFK', 12): 45, ('LAX', 8): 60, ('ORD', 17): 75, ('ATL', 9): 90}
@@ -89,39 +91,38 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
         
     congestion_index = CONGESTION_LOOKUP.get((origin, dep_hour), 15)
 
-    # Konstruksi data mentah dengan penyesuaian tipe numerik dataset asli Anda
+    # Mengubah nilai teks langsung ke kode indeks angka yang aman bagi LightGBM
+    carrier_encoded = carrier_mapping.get(op_unique_carrier, 0)
+    day_type_encoded = day_type_mapping.get(dep_day_type, 0)
+
+    # Konstruksi data dengan tipe numerik murni
     raw_input_data = {
         'month': int(month),
         'day_of_week': int(day_of_week),
-        'op_unique_carrier': op_unique_carrier,
+        'op_unique_carrier': carrier_encoded,  # Diinput sebagai kode kategori
         'op_carrier_fl_num': float(op_carrier_fl_num),
         'crs_dep_time': int(crs_dep_time),
         'crs_elapsed_time': float(crs_elapsed_time),
         'distance': float(distance),
         'dep_hour': int(dep_hour),
         'is_busy_month': int(is_busy_month),
-        'dep_day_type': dep_day_type,
+        'dep_day_type': day_type_encoded,      # Diinput sebagai kode kategori
         'congestion_index': int(congestion_index)
     }
     
     df_input = pd.DataFrame([raw_input_data])
     
-    # MENGUNCI STRUKTUR KATEGORI MENGGUNAKAN CategoricalDtype MASTER
-    categories_dict = {
-        'op_unique_carrier': CARRIER_OPTIONS,
-        'dep_day_type': DEP_DAY_TYPE_OPTIONS
-    }
-    for col, categories in categories_dict.items():
-        if col in df_input.columns:
-            cat_type = pd.CategoricalDtype(categories=categories, ordered=False)
-            df_input[col] = df_input[col].astype(cat_type)
+    # Beritahu LightGBM secara eksplisit bahwa dua kolom ini adalah categorical feature
+    # Melalui konversi tipe data 'category' di tingkat pandas dataframe internalnya
+    for col in ['op_unique_carrier', 'dep_day_type']:
+        df_input[col] = df_input[col].astype('category')
 
-    # SAFETY CHECK: Antisipasi penambahan kolom 0 otomatis jika ada fitur terlewat
+    # Keselarasan Sempurna: Memaksa urutan kolom input persis sesuai list expected_features
+    # Jika ada fitur yang kurang, otomatis diisi dengan nilai default 0
     for col in expected_features:
         if col not in df_input.columns:
             df_input[col] = 0
             
-    # SINKRONISASI TOTAL: Memaksa urutan kolom input persis sama dengan order training model
     df_input = df_input[expected_features]
     
     # 5. Jalankan Prediksi
@@ -148,7 +149,8 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             with col_tab2:
                 st.json({
                     "Jam Keberangkatan": dep_hour,
-                    "Kategori Waktu Hari": dep_day_type,
+                    "Kategori Waktu Hari (Encoded)": day_type_encoded,
+                    "Maskapai (Encoded)": carrier_encoded,
                     "Indeks Kemacetan Terhitung": congestion_index
                 })
     except Exception as e:
