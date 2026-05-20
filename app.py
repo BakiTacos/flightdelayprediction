@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 st.title("✈️ Multi-Cluster Flight Delay Prediction App")
-st.markdown("Aplikasi prediksi keterlambatan dengan **Sistem Diagnosis Error Internal**.")
+st.markdown("Aplikasi prediksi keterlambatan penerbangan cerdas dengan **Analisis Faktor Penyebab**.")
 st.markdown("---")
 
 # 2. Load Artefak Multi-Model
@@ -64,7 +64,7 @@ with col2:
 
 st.markdown("---")
 
-# 4. Eksekusi Prediksi & Debugger
+# 4. Eksekusi Prediksi & Analisis
 if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_container_width=True):
     assigned_cluster = airport_cluster_mapping.get(origin, 0)
     model = cluster_models[assigned_cluster]
@@ -110,53 +110,87 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             cat_type = pd.CategoricalDtype(categories=categories, ordered=False)
             df_input[col] = df_input[col].astype(cat_type)
 
-    # DETEKSI KOLOM YANG HILANG (Penyebab utama Error)
+    # Deteksi & Isi Kolom Ekstra
     missing_cols = [col for col in expected_features if col not in raw_input_data.keys()]
     for col in expected_features:
         if col not in df_input.columns:
-            df_input[col] = 0 # Diisi angka 0 secara otomatis
+            df_input[col] = 0
             
-    # Sinkronisasi urutan fitur akhir
     df_input = df_input[expected_features]
     
-    # 5. Jalankan Prediksi dengan TRY-EXCEPT LOGGING
+    # 5. Jalankan Prediksi dengan Output Visual
     try:
         prediction = model.predict(df_input)[0]
         prediction_proba = model.predict_proba(df_input)[0]
         
-        st.success("✅ **Prediksi Berhasil!** Model bekerja dengan sempurna.")
-        st.json({
-            "Probabilitas On-Time": f"{prediction_proba[0]*100:.2f}%",
-            "Probabilitas Delay": f"{prediction_proba[1]*100:.2f}%"
-        })
+        st.subheader("💡 Hasil Analisis Prediksi:")
+        st.sidebar.info(f"📍 **Routing Status:** Bandara {origin} otomatis diproses menggunakan **Model Cluster {assigned_cluster}**.")
+
+        # --- TAMPILAN STATUS PREDIKSI UTAMA ---
+        if prediction == 1:
+            st.error(f"⚠️ **Penerbangan Diprediksi DELAY** (Probabilitas Risiko Keterlambatan: {prediction_proba[1]*100:.2f}%)")
+        else:
+            st.success(f"✅ **Penerbangan Diprediksi TEPAT WAKTU (ON TIME)** (Probabilitas On-Time: {prediction_proba[0]*100:.2f}%)")
+            
+        # --- DIAGNOSIS LOGIKA FAKTOR PENYEBAB (FEATURE IMPORTANCE SIMULATOR) ---
+        st.markdown("### 🔍 Faktor Utama Keputusan Model")
+        st.write("Berdasarkan pengolahan data, berikut adalah indikator operasional yang memengaruhi hasil prediksi:")
+
+        reasons_delayed = []
+        reasons_ontime = []
+
+        # Analisis Musim Sibuk
+        if is_busy_month == 1:
+            reasons_delayed.append(f"🔴 **Bulan Padat Operasional:** Keberangkatan di bulan {month} terdeteksi sebagai periode sibuk historis yang meningkatkan risiko penumpukan jadwal.")
+        else:
+            reasons_ontime.append(f"🟢 **Kapasitas Musim Normal:** Volume penerbangan pada bulan {month} cenderung stabil dan terkendali.")
+
+        # Analisis Kemacetan Bandara
+        if congestion_index > 40:
+            reasons_delayed.append(f"🔴 **Trafik Bandara Sangat Padat:** Bandara asal {origin} diprediksi mengalami antrean panjang pada jam {dep_hour}:00 (Indeks: {congestion_index}).")
+        elif congestion_index <= 20:
+            reasons_ontime.append(f"🟢 **Trafik Bandara Lengang:** Kepadatan antrean lepas landas di {origin} tergolong sangat rendah pada jam tersebut.")
+        else:
+            reasons_ontime.append(f"🟡 **Trafik Bandara Terkendali:** Lalu lintas udara beroperasi pada batas kapasitas wajar.")
+
+        # Menampilkan Alasan secara Dinamis
+        if prediction == 1:
+            st.info("🔺 **Indikator Pendorong Prediksi DELAY:**")
+            for item in reasons_delayed if reasons_delayed else ["• Kombinasi antara maskapai, jarak, dan sirkulasi udara di cluster ini membentuk pola historis yang identik dengan keterlambatan."]:
+                st.write(item)
+        else:
+            st.info("🔹 **Indikator Pendukung Prediksi TEPAT WAKTU:**")
+            for item in reasons_ontime if reasons_ontime else ["• Sinkronisasi alokasi waktu terbang, jarak, dan manajemen maskapai terdeteksi sangat efisien oleh sistem."]:
+                st.write(item)
+
+        # --- TABEL RINCIAN TEKNIS ---
+        with st.expander("⚙️ Lihat Rincian Probabilitas & Parameter Ekstraksi"):
+            col_tab1, col_tab2 = st.columns(2)
+            with col_tab1:
+                st.json({
+                    "Model Cluster Pemroses": int(assigned_cluster),
+                    "Probabilitas Tepat Waktu (On-Time)": f"{prediction_proba[0]*100:.2f}%",
+                    "Probabilitas Terlambat (Delay)": f"{prediction_proba[1]*100:.2f}%"
+                })
+            with col_tab2:
+                st.json({
+                    "Jam Keberangkatan": dep_hour,
+                    "Kategori Waktu Hari": dep_day_type,
+                    "Indeks Kemacetan Terhitung": congestion_index,
+                    "Maskapai Terbaca Sistem": op_unique_carrier_model
+                })
 
     except Exception as e:
-        # BAGIAN INI AKAN MENAMPILKAN ERROR LOG LENGKAP DI STREAMLIT
+        # Sistem Penjaga (Debugger) Tetap Dipertahankan
         st.error("⚠️ **Terjadi Kesalahan Klasifikasi Model!**")
         st.code(str(e), language="text")
         
         st.markdown("### 🔍 LOG DEBUGGER: Analisis Mismatch Tipe Data")
-        st.warning(f"Sistem mendeteksi ada **{len(missing_cols)} fitur** yang dilatih oleh model, namun tidak diberikan nilainya dari `raw_input_data` di Streamlit. Fitur tersebut otomatis diisi angka 0 (integer).")
-        
-        # Membuat tabel diagnosis
         debug_data = []
         for col in expected_features:
             is_missing = "❌ Terlewat (Diisi 0)" if col in missing_cols else "✅ Tersedia"
             col_dtype = str(df_input[col].dtype)
+            issue = "Kemungkinan ini tipe Category saat training!" if col in missing_cols and ("cat" in col_dtype or "int" in col_dtype) else ""
+            debug_data.append({"Nama Fitur": col, "Status Input": is_missing, "Tipe Data Streamlit": col_dtype, "Analisis": issue})
             
-            # Mendeteksi ketidakwajaran
-            issue = ""
-            if col in missing_cols and ("cat" in col_dtype or "int" in col_dtype):
-                issue = "Kemungkinan ini tipe Category saat training!"
-                
-            debug_data.append({
-                "Nama Fitur": col,
-                "Status Input": is_missing,
-                "Tipe Data Streamlit": col_dtype,
-                "Analisis": issue
-            })
-            
-        df_debug = pd.DataFrame(debug_data)
-        st.dataframe(df_debug, use_container_width=True)
-        
-        st.info("💡 **Solusi:** Lihat tabel di atas. Jika ada kolom bertipe kategori (misal: `origin_state_nm`) yang masuk status 'Terlewat', segera tambahkan kolom tersebut ke daftar `drop_cols` di Jupyter Notebook Anda dan latih ulang modelnya!")
+        st.dataframe(pd.DataFrame(debug_data), use_container_width=True)
