@@ -6,28 +6,29 @@ import traceback
 
 # 1. Konfigurasi Halaman Streamlit
 st.set_page_config(
-    page_title="Multi-Cluster Flight Delay Prediction",
+    page_title="Multi-Cluster Flight Delay Prediction (XGBoost)",
     page_icon="✈️",
     layout="wide"
 )
 
-st.title("✈️ Multi-Cluster Flight Delay Prediction App")
-st.markdown("Aplikasi prediksi keterlambatan penerbangan cerdas dengan **Dual Analysis (Kontekstual & Saintifik)**.")
+st.title("✈️ Multi-Cluster Flight Delay Prediction App (XGBoost Version)")
+st.markdown("Aplikasi prediksi keterlambatan penerbangan cerdas dengan **XGBoost Engine** & **Optimasi Threshold Kustom (0.40)**.")
 st.markdown("---")
 
-# 2. Load Artefak Multi-Model
+# 2. Load Artefak Multi-Model XGBoost
 @st.cache_resource
 def load_multi_model_artifacts():
-    models = joblib.load("lgbm_cluster_models.pkl")         
+    # Mengarah ke berkas pkl XGBoost hasil ekspor terbaru Anda
+    models = joblib.load("xgb_cluster_models.pkl")         
     cluster_map = joblib.load("airport_cluster_mapping.pkl") 
     features = joblib.load("model_features.pkl")             
     return models, cluster_map, features
 
 try:
     cluster_models, airport_cluster_mapping, expected_features = load_multi_model_artifacts()
-    st.sidebar.success("✅ Semua Model Cluster & Pemetaan Berhasil Dimuat")
+    st.sidebar.success("✅ Semua Model Cluster XGBoost & Pemetaan Berhasil Dimuat")
 except Exception as e:
-    st.sidebar.error(f"❌ Gagal memuat komponen model: {e}")
+    st.sidebar.error(f"❌ Gagal memuat komponen model XGBoost: {e}")
     st.stop()
 
 # --- SINKRONISASI MUTLAK KATEGORI (SAMA PERSIS DENGAN NOTEBOOK) ---
@@ -71,7 +72,7 @@ with col2:
 st.markdown("---")
 
 # 4. Eksekusi Prediksi
-if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_container_width=True):
+if st.button("🔮 Hitung Analisis & Prediksi Delay via XGBoost", type="primary", use_container_width=True):
     assigned_cluster = airport_cluster_mapping.get(origin, 0)
     model = cluster_models[assigned_cluster]
     
@@ -106,7 +107,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
     
     df_input = pd.DataFrame([raw_input_data])
     
-    # MENGUNCI KATEGORI MENGGUNAKAN CategoricalDtype
+    # MENGUNCI KATEGORI MENGGUNAKAN CategoricalDtype (Sangat Wajib untuk enable_categorical=True pada XGBoost)
     categories_dict = {
         'op_unique_carrier': MODEL_CARRIERS,
         'dep_day_type': MODEL_DAY_TYPES
@@ -116,7 +117,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             cat_type = pd.CategoricalDtype(categories=categories, ordered=False)
             df_input[col] = df_input[col].astype(cat_type)
 
-    # Safety Check Kolom
+    # Safety Check Kolom & Penyesuaian Urutan agar Sesuai dengan Fitur Latih XGBoost
     missing_cols = [col for col in expected_features if col not in raw_input_data.keys()]
     for col in expected_features:
         if col not in df_input.columns:
@@ -124,19 +125,26 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             
     df_input = df_input[expected_features]
     
-    # 5. Jalankan Prediksi dengan Analisis Dinamis
+    # 5. Jalankan Prediksi dengan Aturan Kustom Threshold 0.40
     try:
-        prediction = model.predict(df_input)[0]
+        # Mengambil probabilitas murni untuk mengaktifkan Threshold Moving
         prediction_proba = model.predict_proba(df_input)[0]
+        prob_delay = prediction_proba[1]
+        prob_ontime = prediction_proba[0]
         
-        st.subheader("💡 Hasil Analisis Prediksi:")
+        # Penentuan vonis kelas berdasarkan optimasi nilai kustom threshold riset Anda (0.40)
+        XGB_CUSTOM_THRESHOLD = 0.40
+        prediction = 1 if prob_delay > XGB_CUSTOM_THRESHOLD else 0
+        
+        st.subheader("💡 Hasil Analisis Prediksi (XGBoost Engine):")
         st.sidebar.info(f"📍 **Routing Status:** Bandara {origin} otomatis diproses menggunakan **Model Cluster {assigned_cluster}**.")
 
         # --- TAMPILAN STATUS PREDIKSI UTAMA ---
         if prediction == 1:
-            st.error(f"⚠️ **Penerbangan Diprediksi DELAY** (Probabilitas Risiko Keterlambatan: {prediction_proba[1]*100:.2f}%)")
+            st.error(f"⚠️ **Penerbangan Diprediksi DELAY** (Probabilitas Risiko Keterlambatan: {prob_delay*100:.2f}%)")
+            st.caption(f"ℹ️ *Status ditentukan berdasarkan batas ambang optimalisasi sensitivitas model (Threshold: {XGB_CUSTOM_THRESHOLD})*")
         else:
-            st.success(f"✅ **Penerbangan Diprediksi TEPAT WAKTU (ON TIME)** (Probabilitas On-Time: {prediction_proba[0]*100:.2f}%)")
+            st.success(f"✅ **Penerbangan Diprediksi TEPAT WAKTU (ON TIME)** (Probabilitas On-Time: {prob_ontime*100:.2f}%)")
             
         st.markdown("---")
         
@@ -183,7 +191,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             # --- LAPIS 2: DYNAMIC FEATURE IMPORTANCE (SAINTIFIK) ---
             st.markdown("### 📊 Bobot Pengaruh Fitur Internal")
             
-            # Mengambil skor kepentingan fitur asli langsung dari model .pkl aktif
+            # Mengambil skor kepentingan fitur asli langsung dari model XGBoost .pkl aktif
             importances = model.feature_importances_
             df_importance = pd.DataFrame({
                 'Indikator': expected_features,
@@ -204,7 +212,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             )
             
             top_3 = df_importance['Indikator'].head(3).tolist()
-            st.caption(f"💡 *Tiga fitur yang paling mendikte struktur keputusan matematika LightGBM pada pengujian ini secara berurutan adalah: **{', '.join(top_3)}**.*")
+            st.caption(f"💡 *Tiga fitur yang paling mendikte struktur keputusan matematika XGBoost pada pengujian ini secara berurutan adalah: **{', '.join(top_3)}**.*")
 
         # Tab Rincian Data Teknis untuk Transparansi Nilai
         with st.expander("⚙️ Rincian Nilai Probabilitas Matematika"):
@@ -212,8 +220,9 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
             with col_tab1:
                 st.json({
                     "ID Model Cluster Terpilih": int(assigned_cluster),
-                    "Probabilitas Tepat Waktu (On-Time)": f"{prediction_proba[0]*100:.2f}%",
-                    "Probabilitas Terlambat (Delay)": f"{prediction_proba[1]*100:.2f}%"
+                    "Probabilitas Tepat Waktu (On-Time)": f"{prob_ontime*100:.2f}%",
+                    "Probabilitas Terlambat (Delay)": f"{prob_delay*100:.2f}%",
+                    "Ambang Batas Keputusan Aktif": XGB_CUSTOM_THRESHOLD
                 })
             with col_tab2:
                 st.json({
@@ -224,15 +233,16 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay", type="primary", use_contai
                 })
 
     except Exception as e:
-        st.error("⚠️ **Terjadi Kesalahan Klasifikasi Model!**")
+        st.error("⚠️ **Terjadi Kesalahan Klasifikasi Model XGBoost!**")
         st.code(str(e), language="text")
+        st.code(traceback.format_exc(), language="text") # Ditambahkan traceback utuh agar debug OOM/Dtype di Streamlit Cloud lebih mudah
         
         st.markdown("### 🔍 LOG DEBUGGER: Analisis Mismatch Tipe Data")
         debug_data = []
         for col in expected_features:
             is_missing = "❌ Terlewat (Diisi 0)" if col in missing_cols else "✅ Tersedia"
             col_dtype = str(df_input[col].dtype)
-            issue = "Kemungkinan ini tipe Category saat training!" if col in missing_cols and ("cat" in col_dtype or "int" in col_dtype) else ""
+            issue = "XGBoost sensitif terhadap kategori kosong!" if col in missing_cols and ("cat" in col_dtype or "int" in col_dtype) else ""
             debug_data.append({"Nama Fitur": col, "Status Input": is_missing, "Tipe Data Streamlit": col_dtype, "Analisis": issue})
             
         st.dataframe(pd.DataFrame(debug_data), use_container_width=True)
