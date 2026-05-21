@@ -4,21 +4,21 @@ import numpy as np
 import joblib
 import traceback
 
-# 1. Konfigurasi Halaman Streamlit
+# 1. Streamlit Page Configuration
 st.set_page_config(
-    page_title="Multi-Cluster Flight Delay Prediction (XGBoost)",
+    page_title="Flight Delay Prediction (Clustering + XGBoost)",
     page_icon="✈️",
     layout="wide"
 )
 
-st.title("✈️ Multi-Cluster Flight Delay Prediction App (XGBoost Version)")
-st.markdown("Aplikasi prediksi keterlambatan penerbangan cerdas dengan **XGBoost Engine** & **Optimasi Threshold Kustom (0.40)**.")
+st.title("✈️ Flight Delay Prediction (Clustering + XGBoost)")
+st.markdown("Predict Flight Delay with **XGBoost**.")
 st.markdown("---")
 
-# 2. Load Artefak Multi-Model XGBoost
+# 2. Load Multi-Model XGBoost Artifacts
 @st.cache_resource
 def load_multi_model_artifacts():
-    # Mengarah ke berkas pkl XGBoost hasil ekspor terbaru Anda
+    # Points to your latest exported XGBoost pkl files
     models = joblib.load("xgb_cluster_models.pkl")         
     cluster_map = joblib.load("airport_cluster_mapping.pkl") 
     features = joblib.load("model_features.pkl")             
@@ -26,12 +26,12 @@ def load_multi_model_artifacts():
 
 try:
     cluster_models, airport_cluster_mapping, expected_features = load_multi_model_artifacts()
-    st.sidebar.success("✅ Semua Model Cluster XGBoost & Pemetaan Berhasil Dimuat")
+    st.sidebar.success("✅ Model Loaded Successfully")
 except Exception as e:
-    st.sidebar.error(f"❌ Gagal memuat komponen model XGBoost: {e}")
+    st.sidebar.error(f"❌ Failed to Load Model: {e}")
     st.stop()
 
-# --- SINKRONISASI MUTLAK KATEGORI (SAMA PERSIS DENGAN NOTEBOOK) ---
+# --- ABSOLUTE CATEGORY SYNCHRONIZATION (MATCHES NOTEBOOK EXACTLY) ---
 MODEL_CARRIERS = ['9e', 'aa', 'as', 'b6', 'dl', 'f9', 'g4', 'ha', 'mq', 'nk', 'oh', 'oo', 'ua', 'wn', 'yx']
 MODEL_DAY_TYPES = ['Night', 'Early_Morning', 'Morning', 'Midday', 'Afternoon', 'Evening']
 UI_CARRIERS = [c.upper() for c in MODEL_CARRIERS]
@@ -42,41 +42,41 @@ AIRPORT_OPTIONS = list(airport_cluster_mapping.keys()) if airport_cluster_mappin
 STATE_OPTIONS = ['Georgia', 'Illinois', 'Texas', 'Colorado', 'California', 'New York', 'Florida', 'North Carolina', 'Nevada', 'Arizona']
 CITY_OPTIONS = ['Atlanta, GA', 'Chicago, IL', 'Dallas/Fort Worth, TX', 'Denver, CO', 'Los Angeles, CA', 'San Francisco, CA', 'New York, NY', 'Miami, FL', 'Orlando, FL']
 
-# 3. Form Input Pengguna
-st.subheader("📊 Masukkan Informasi Penerbangan")
+# 3. User Input Form
+st.subheader("📊 Insert Flight Information")
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("### 📅 Jadwal & Waktu")
-    month = st.slider("Bulan (Month)", min_value=1, max_value=12, value=6)
-    day_of_week = st.slider("Hari dalam Seminggu (1=Senin, 7=Minggu)", min_value=1, max_value=7, value=3)
-    crs_dep_time = st.number_input("Waktu Keberangkatan Terjadwal (HHMM, misal: 1530)", min_value=0, max_value=2359, value=1200, step=5)
-    op_carrier_fl_num = st.number_input("Nomor Penerbangan (Flight Number)", min_value=1, max_value=9999, value=1234)
+    st.markdown("### 📅 Date and Time")
+    month = st.slider("Month", min_value=1, max_value=12, value=6)
+    day_of_week = st.slider("Day of Week (1=Monday, 7=Sunday)", min_value=1, max_value=7, value=3)
+    crs_dep_time = st.number_input("Departure Time (HHMM, Ex: 1530)", min_value=0, max_value=2359, value=1200, step=5)
+    op_carrier_fl_num = st.number_input("Flight Number", min_value=1, max_value=9999, value=1234)
     
-    st.markdown("### 🗺️ Jarak & Durasi")
-    distance = st.number_input("Jarak Penerbangan (Distance in Miles)", min_value=10, max_value=10000, value=500)
-    crs_elapsed_time = st.number_input("Durasi Terjadwal (CRS Elapsed Time in Minutes)", min_value=10, max_value=1000, value=120)
+    st.markdown("### 🗺️ Distance & Duration")
+    distance = st.number_input("Distance in Miles", min_value=10, max_value=10000, value=500)
+    crs_elapsed_time = st.number_input("Scheduled Elapsed Time (Minutes)", min_value=10, max_value=1000, value=120)
 
 with col2:
-    st.markdown("### ✈️ Maskapai & Lokasi")
-    op_unique_carrier_ui = st.selectbox("Maskapai (Carrier)", UI_CARRIERS)
-    origin = st.selectbox("Bandara Asal (Origin)", AIRPORT_OPTIONS, index=0)       
-    origin_city_name = st.selectbox("Kota Asal", CITY_OPTIONS, index=4) 
-    origin_state_nm = st.selectbox("Negara Bagian Asal", STATE_OPTIONS, index=4)
+    st.markdown("### ✈️ Airline and Locations")
+    op_unique_carrier_ui = st.selectbox("Airlines", UI_CARRIERS)
+    origin = st.selectbox("Origin Airport", AIRPORT_OPTIONS, index=0)       
+    origin_city_name = st.selectbox("Origin City", CITY_OPTIONS, index=4) 
+    origin_state_nm = st.selectbox("Origin State", STATE_OPTIONS, index=4)
     
     st.markdown("---")
-    dest = st.selectbox("Bandara Tujuan (Destination)", AIRPORT_OPTIONS, index=1 if len(AIRPORT_OPTIONS) > 1 else 0)    
-    dest_city_name = st.selectbox("Kota Tujuan", CITY_OPTIONS, index=6) 
-    dest_state_nm = st.selectbox("Negara Bagian Tujuan", STATE_OPTIONS, index=5)
+    dest = st.selectbox("Destination Airport", AIRPORT_OPTIONS, index=1 if len(AIRPORT_OPTIONS) > 1 else 0)    
+    dest_city_name = st.selectbox("Destination City", CITY_OPTIONS, index=6) 
+    dest_state_nm = st.selectbox("Destination State", STATE_OPTIONS, index=5)
 
 st.markdown("---")
 
-# 4. Eksekusi Prediksi
-if st.button("🔮 Hitung Analisis & Prediksi Delay via XGBoost", type="primary", use_container_width=True):
+# 4. Prediction Execution
+if st.button("🔮 Predict", type="primary", use_container_width=True):
     assigned_cluster = airport_cluster_mapping.get(origin, 0)
     model = cluster_models[assigned_cluster]
     
-    # Feature Engineering Otomatis
+    # Automated Feature Engineering
     dep_hour = int(crs_dep_time // 100) 
     is_busy_month = 1 if month in BUSY_MONTHS else 0
     
@@ -90,7 +90,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay via XGBoost", type="primary"
     congestion_index = CONGESTION_LOOKUP.get((origin, dep_hour), 15)
     op_unique_carrier_model = op_unique_carrier_ui.lower()
 
-    # Konstruksi data mentah
+    # Construct raw input data dictionary
     raw_input_data = {
         'month': int(month),
         'day_of_week': int(day_of_week),
@@ -107,7 +107,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay via XGBoost", type="primary"
     
     df_input = pd.DataFrame([raw_input_data])
     
-    # MENGUNCI KATEGORI MENGGUNAKAN CategoricalDtype (Sangat Wajib untuk enable_categorical=True pada XGBoost)
+    # LOCK CATEGORIES USING CategoricalDtype (Crucial to support enable_categorical=True in XGBoost)
     categories_dict = {
         'op_unique_carrier': MODEL_CARRIERS,
         'dep_day_type': MODEL_DAY_TYPES
@@ -117,7 +117,7 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay via XGBoost", type="primary"
             cat_type = pd.CategoricalDtype(categories=categories, ordered=False)
             df_input[col] = df_input[col].astype(cat_type)
 
-    # Safety Check Kolom & Penyesuaian Urutan agar Sesuai dengan Fitur Latih XGBoost
+    # Column Safety Check & Reordering to Match XGBoost's Training Features
     missing_cols = [col for col in expected_features if col not in raw_input_data.keys()]
     for col in expected_features:
         if col not in df_input.columns:
@@ -125,124 +125,124 @@ if st.button("🔮 Hitung Analisis & Prediksi Delay via XGBoost", type="primary"
             
     df_input = df_input[expected_features]
     
-    # 5. Jalankan Prediksi dengan Aturan Kustom Threshold 0.40
+    # 5. Run Prediction with Custom Decision Threshold (0.40)
     try:
-        # Mengambil probabilitas murni untuk mengaktifkan Threshold Moving
+        # Get raw probabilities to enable custom threshold moving
         prediction_proba = model.predict_proba(df_input)[0]
         prob_delay = prediction_proba[1]
         prob_ontime = prediction_proba[0]
         
-        # Penentuan vonis kelas berdasarkan optimasi nilai kustom threshold riset Anda (0.40)
+        # Class judgment based on your optimized custom research threshold (0.40)
         XGB_CUSTOM_THRESHOLD = 0.40
         prediction = 1 if prob_delay > XGB_CUSTOM_THRESHOLD else 0
         
-        st.subheader("💡 Hasil Analisis Prediksi (XGBoost Engine):")
-        st.sidebar.info(f"📍 **Routing Status:** Bandara {origin} otomatis diproses menggunakan **Model Cluster {assigned_cluster}**.")
+        st.subheader("💡 Analysis of Predictions:")
+        st.sidebar.info(f"📍 **Routing Status:** Airport {origin} automatically processed using **Model Cluster {assigned_cluster}**.")
 
-        # --- TAMPILAN STATUS PREDIKSI UTAMA ---
+        # --- MAIN PREDICTION STATUS DISPLAY ---
         if prediction == 1:
-            st.error(f"⚠️ **Penerbangan Diprediksi DELAY** (Probabilitas Risiko Keterlambatan: {prob_delay*100:.2f}%)")
-            st.caption(f"ℹ️ *Status ditentukan berdasarkan batas ambang optimalisasi sensitivitas model (Threshold: {XGB_CUSTOM_THRESHOLD})*")
+            st.error(f"⚠️ **Flight is predicted to be DELAYED** (Delay Probability: {prob_delay*100:.2f}%)")
+            st.caption(f"ℹ️ *Based on Decision Threshold: {XGB_CUSTOM_THRESHOLD}*")
         else:
-            st.success(f"✅ **Penerbangan Diprediksi TEPAT WAKTU (ON TIME)** (Probabilitas On-Time: {prob_ontime*100:.2f}%)")
+            st.success(f"✅ **Flight is predicted to be ON TIME** (On-Time Probability: {prob_ontime*100:.2f}%)")
             
         st.markdown("---")
         
-        # Membuat Layout 2 Kolom untuk Hasil Analisis (Teks di Kiri, Grafik di Kanan)
+        # 2-Column Layout for Analysis Results (Text on Left, Chart on Right)
         col_ans1, col_ans2 = st.columns([1, 1])
         
         with col_ans1:
-            # --- LAPIS 1: DIAGNOSIS KONTEKSTUAL (IF-ELSE CERDAS) ---
-            st.markdown("### 🔍 Deskripsi Faktor Penyebab")
-            st.write("Berdasarkan silsilah parameter kombinasi input Anda, berikut adalah interpretasi operasionalnya:")
+            # --- LAYER 1: CONTEXTUAL DIAGNOSIS (SMART IF-ELSE) ---
+            st.markdown("### 🔍 Description and Cause:")
+            st.write("Based on the pattern of your combined input parameters, here is the operational breakdown:")
             
             reasons_delayed = []
             reasons_ontime = []
 
-            # Logika Aturan Bulan Sibuk
+            # Busy Month Logic
             if is_busy_month == 1:
-                reasons_delayed.append(f"🔴 **High Season Alert:** Bulan {month} secara historis merupakan puncak liburan/cuaca tertentu pada Cluster {assigned_cluster} yang rentan memicu delay massal.")
+                reasons_delayed.append(f"🔴 **High Season Alert:** Month {month} historically represents a holiday peak or severe weather window for Cluster {assigned_cluster}, which is prone to triggering mass delays.")
             else:
-                reasons_ontime.append(f"🟢 **Kondisi Musim Stabil:** Bulan {month} berada pada grafik lalu lintas penerbangan tahunan yang normal.")
+                reasons_ontime.append(f"🟢 **Stable Season Conditions:** Month {month} sits within a normal, manageable annual flight traffic curve.")
 
-            # Logika Aturan Kemacetan Real-Time Bandara
+            # Real-Time Airport Congestion Logic
             if congestion_index > 40:
-                reasons_delayed.append(f"🔴 **Trafik Bandara Sangat Padat:** Slot keberangkatan jam {dep_hour}:00 di bandara {origin} terdeteksi memiliki kepadatan tinggi (Indeks Kepadatan: {congestion_index}).")
+                reasons_delayed.append(f"🔴 **Heavy Airport Traffic:** The {dep_hour}:00 departure slot at airport {origin} shows a high density level (Congestion Index: {congestion_index}).")
             elif congestion_index <= 20:
-                reasons_ontime.append(f"🟢 **Trafik Bandara Aman:** Jadwal penerbangan di bandara asal {origin} tergolong lengang pada jam {dep_hour}:00.")
+                reasons_ontime.append(f"🟢 **Clear Airport Traffic:** Flight schedules at origin airport {origin} are relatively light around {dep_hour}:00.")
             else:
-                reasons_ontime.append(f"🟡 **Trafik Bandara Wajar:** Sifat kepadatan lalu lintas udara berada pada batas kapasitas operasional aman.")
+                reasons_ontime.append(f"🟡 **Moderate Airport Traffic:** Air traffic density remains within standard safe operational capacities.")
 
-            # Logika Pola Jam Terbang (Malam hari/Pagi buta)
+            # Flight Time Windows Logic (Evening/Night Accumulation)
             if dep_day_type in ['Night', 'Evening'] and prediction == 1:
-                reasons_delayed.append(f"⚠️ **Efek Domino Waktu Malam:** Keberangkatan pada fase `{dep_day_type}` sangat rentan terkena akumulasi keterlambatan pesawat dari jadwal penerbangan subuh/siang hari sebelumnya.")
+                reasons_delayed.append(f"⚠️ **Evening Knock-On Effect:** Departures scheduled during the `{dep_day_type}` phase are highly vulnerable to accumulated backlog delays from earlier morning/midday flights.")
 
-            # Menampilkan interpretasi teks
+            # Displaying text interpretations
             if prediction == 1:
-                st.warning("🔺 **Indikator Utama Pemicu Risiko Delay:**")
-                for item in reasons_delayed if reasons_delayed else ["• Pola pergerakan rute maskapai gabungan pada jam ini secara historis membentuk kecenderungan delay."]:
+                st.warning("🔺 **Primary Risk Indicators Triggering Delay:**")
+                for item in reasons_delayed if reasons_delayed else ["• Combined airline route movement patterns at this specific hour historically yield a strong mathematical bias toward delays."]:
                     st.write(item)
             else:
-                st.info("🔹 **Indikator Utama Pendukung Ketepatan Waktu:**")
-                for item in reasons_ontime if reasons_ontime else ["• Parameter alokasi waktu terbang dan kesiapan armada terpantau berada di zona aman model."]:
+                st.info("🔹 **Primary Indicators Supporting On-Time Performance:**")
+                for item in reasons_ontime if reasons_ontime else ["• Flight time allocation and fleet readiness parameters stay safely within the model's low-risk zones."]:
                     st.write(item)
 
         with col_ans2:
-            # --- LAPIS 2: DYNAMIC FEATURE IMPORTANCE (SAINTIFIK) ---
-            st.markdown("### 📊 Bobot Pengaruh Fitur Internal")
+            # --- LAYER 2: DYNAMIC FEATURE IMPORTANCE (SCIENTIFIC) ---
+            st.markdown("### 📊 Internal Feature Weights")
             
-            # Mengambil skor kepentingan fitur asli langsung dari model XGBoost .pkl aktif
+            # Fetching raw gain importance scores directly from the active XGBoost .pkl model
             importances = model.feature_importances_
             df_importance = pd.DataFrame({
-                'Indikator': expected_features,
-                'Skor (Gain)': importances
-            }).sort_values(by='Skor (Gain)', ascending=False)
+                'Indicator': expected_features,
+                'Score (Gain)': importances
+            }).sort_values(by='Score (Gain)', ascending=False)
             
-            # Normalisasi ke 100%
-            total_gain = df_importance['Skor (Gain)'].sum()
-            df_importance['Bobot Pengaruh (%)'] = (df_importance['Skor (Gain)'] / total_gain * 100) if total_gain > 0 else 0.0
+            # Normalize to 100%
+            total_gain = df_importance['Score (Gain)'].sum()
+            df_importance['Influence Weight (%)'] = (df_importance['Score (Gain)'] / total_gain * 100) if total_gain > 0 else 0.0
 
-            # Render grafik batang interaktif Streamlit
+            # Render interactive Streamlit bar chart
             st.bar_chart(
                 df_importance.head(6), 
-                x='Indikator', 
-                y='Bobot Pengaruh (%)', 
+                x='Indicator', 
+                y='Influence Weight (%)', 
                 horizontal=True,
                 color='#2ca02c' if prediction == 0 else '#d62728'
             )
             
-            top_3 = df_importance['Indikator'].head(3).tolist()
-            st.caption(f"💡 *Tiga fitur yang paling mendikte struktur keputusan matematika XGBoost pada pengujian ini secara berurutan adalah: **{', '.join(top_3)}**.*")
+            top_3 = df_importance['Indicator'].head(3).tolist()
+            st.caption(f"💡 *The three features most heavily dictating the XGBoost decision structure for this particular runtime test are: **{', '.join(top_3)}**.*")
 
-        # Tab Rincian Data Teknis untuk Transparansi Nilai
-        with st.expander("⚙️ Rincian Nilai Probabilitas Matematika"):
+        # Technical Details Expander for Mathematical Transparency
+        with st.expander("⚙️ Mathematical Probability Details"):
             col_tab1, col_tab2 = st.columns(2)
             with col_tab1:
                 st.json({
-                    "ID Model Cluster Terpilih": int(assigned_cluster),
-                    "Probabilitas Tepat Waktu (On-Time)": f"{prob_ontime*100:.2f}%",
-                    "Probabilitas Terlambat (Delay)": f"{prob_delay*100:.2f}%",
-                    "Ambang Batas Keputusan Aktif": XGB_CUSTOM_THRESHOLD
+                    "Selected Cluster Model ID": int(assigned_cluster),
+                    "On-Time Probability": f"{prob_ontime*100:.2f}%",
+                    "Delay Probability": f"{prob_delay*100:.2f}%",
+                    "Active Decision Threshold": XGB_CUSTOM_THRESHOLD
                 })
             with col_tab2:
                 st.json({
-                    "Jam Keberangkatan": dep_hour,
-                    "Kategori Waktu Hari": dep_day_type,
-                    "Indeks Kemacetan Bandara": congestion_index,
-                    "Maskapai Terbaca Model": op_unique_carrier_model
+                    "Departure Hour": dep_hour,
+                    "Day Type Category": dep_day_type,
+                    "Airport Congestion Index": congestion_index,
+                    "Model-Parsed Airline String": op_unique_carrier_model
                 })
 
     except Exception as e:
-        st.error("⚠️ **Terjadi Kesalahan Klasifikasi Model XGBoost!**")
+        st.error("⚠️ **An Error Occurred During XGBoost Classification!**")
         st.code(str(e), language="text")
-        st.code(traceback.format_exc(), language="text") # Ditambahkan traceback utuh agar debug OOM/Dtype di Streamlit Cloud lebih mudah
+        st.code(traceback.format_exc(), language="text") # Full traceback included to make debugging Dtype mismatch on cloud runtimes easier
         
-        st.markdown("### 🔍 LOG DEBUGGER: Analisis Mismatch Tipe Data")
+        st.markdown("### 🔍 DEBUG LOG: Data Type Mismatch Analysis")
         debug_data = []
         for col in expected_features:
-            is_missing = "❌ Terlewat (Diisi 0)" if col in missing_cols else "✅ Tersedia"
+            is_missing = "❌ Omitted (Defaulted to 0)" if col in missing_cols else "✅ Available"
             col_dtype = str(df_input[col].dtype)
-            issue = "XGBoost sensitif terhadap kategori kosong!" if col in missing_cols and ("cat" in col_dtype or "int" in col_dtype) else ""
-            debug_data.append({"Nama Fitur": col, "Status Input": is_missing, "Tipe Data Streamlit": col_dtype, "Analisis": issue})
+            issue = "XGBoost is highly sensitive to missing/empty categorical types!" if col in missing_cols and ("cat" in col_dtype or "int" in col_dtype) else ""
+            debug_data.append({"Feature Name": col, "Input Status": is_missing, "Streamlit Dtype": col_dtype, "Analysis": issue})
             
         st.dataframe(pd.DataFrame(debug_data), use_container_width=True)
